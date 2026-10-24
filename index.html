@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f1923">
+  <title>Wawa · VA瓦雷达</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ff4655'/%3E%3Cstop offset='1' stop-color='%23ff8a5c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='13' fill='url(%23g)'/%3E%3Ccircle cx='24' cy='24' r='14' fill='none' stroke='%23fff' stroke-width='2.4'/%3E%3Ccircle cx='24' cy='24' r='7' fill='none' stroke='%23fff' stroke-opacity='.55' stroke-width='2'/%3E%3Cpath d='M24 24 35.5 12.5' stroke='%23fff' stroke-width='2.8' stroke-linecap='round'/%3E%3Ccircle cx='33' cy='30' r='2.6' fill='%23fff'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css?v=20261024-sysfont">
+</head>
+<body>
+  <div id="joinView" class="join-view wawa">
+    <!-- 背景: 慢速旋转的雷达扫描 + 同心圈 + 几个闪烁的目标点(prefers-reduced-motion 下静止) -->
+    <div class="wj-bg" aria-hidden="true">
+      <span class="wj-glow wj-glow-a"></span>
+      <span class="wj-glow wj-glow-b"></span>
+      <div class="wj-radar">
+        <i class="wj-ring wj-r1"></i><i class="wj-ring wj-r2"></i><i class="wj-ring wj-r3"></i>
+        <i class="wj-cross wj-cross-h"></i><i class="wj-cross wj-cross-v"></i>
+        <i class="wj-sweep"></i>
+        <b class="wj-blip wj-b1"></b><b class="wj-blip wj-b2"></b><b class="wj-blip wj-b3"></b><b class="wj-blip wj-b4"></b>
+      </div>
+    </div>
+
+    <div class="wj-card">
+      <div class="wj-brand">
+        <svg class="wj-mark" viewBox="0 0 48 48" aria-hidden="true">
+          <defs><linearGradient id="wjGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff4655"/><stop offset="1" stop-color="#ff8a5c"/></linearGradient></defs>
+          <rect width="48" height="48" rx="13" fill="url(#wjGrad)"/>
+          <circle cx="24" cy="24" r="14" fill="none" stroke="#fff" stroke-width="2.4"/>
+          <circle cx="24" cy="24" r="7" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="2"/>
+          <path d="M24 24 35.5 12.5" stroke="#fff" stroke-width="2.8" stroke-linecap="round"/>
+          <circle cx="33" cy="30" r="2.6" fill="#fff"/>
+        </svg>
+        <div class="wj-title">
+          <div class="wj-word">Wawa</div>
+          <div class="wj-name">VA瓦雷达</div>
+        </div>
+      </div>
+      <p class="wj-tag">实时战术雷达　手机上传，浏览器观看</p>
+
+      <label class="wj-label" for="roomInput">房间号</label>
+      <input id="roomInput" class="wj-room" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="输入 6 位房间号">
+      <input id="serverInput" class="server-input" spellcheck="false" aria-label="WebSocket server">
+      <button id="connectBtn" class="wj-btn" type="button">进入雷达</button>
+      <button id="demoBtn" class="wj-btn-ghost" type="button">看看演示　房间 123456</button>
+      <div id="joinError" class="wj-error"></div>
+      <p class="wj-help">房间号在手机 <b>VA瓦雷达</b> App 里，点「创建房间」后显示。</p>
+    </div>
+
+    <div class="wj-footer">Wawa · VA瓦雷达<a href="/research/">调试台</a></div>
+  </div>
+
+  <main class="shell">
+    <section class="radar-stage map-area" aria-label="radar display">
+      <div class="map-frame">
+        <span class="corner c-tl"></span><span class="corner c-tr"></span>
+        <span class="corner c-bl"></span><span class="corner c-br"></span>
+        <canvas id="radar" width="614" height="614"></canvas>
+      </div>
+    </section>
+
+    <!-- 顶部状态条: 连接状态 + 房间 + fps -->
+    <div id="statusBar" class="status-strip disconnected">
+      <span id="statusDot" class="dot"></span>
+      <span id="statusText">断开连接</span>
+      <span id="frameText">0 fps</span>
+    </div>
+
+    <!-- 解码状态条: 实战调试关键面板(session/keystream/exact_ratio/chars/pps/gap_resets/notes) -->
+    <div id="decodeBar" class="decode-bar hidden">
+      <div class="decode-cell"><span>房间</span><strong id="decodeRoom">—</strong></div>
+      <div class="decode-cell"><span>Host</span><strong id="decodeHost">离线</strong></div>
+      <div class="decode-cell"><span>会话</span><strong id="decodeState">—</strong></div>
+      <div class="decode-cell keystream">
+        <span>密钥流 bit</span>
+        <strong id="decodeKeystream">0</strong>
+        <canvas id="keystreamSpark" class="keystream-spark" width="120" height="24"></canvas>
+      </div>
+      <div class="decode-cell"><span>精确率</span><strong id="decodeRatio">0%</strong></div>
+      <div class="decode-cell"><span>已解角色</span><strong id="decodeChars">0</strong></div>
+      <div class="decode-cell"><span>入包 pps</span><strong id="decodePps">0.0</strong></div>
+      <div class="decode-cell"><span>缺口重置</span><strong id="decodeGapResets">0</strong></div>
+      <div class="decode-cell notes"><span>备注</span><strong id="decodeNotes">—</strong></div>
+    </div>
+
+    <!-- 选地图: 顶部的大按钮, 点开是选图面板; 进入雷达时还没确定地图会自动弹出 -->
+    <button id="mapPickBtn" class="map-pick need" type="button" aria-haspopup="dialog" aria-controls="mapSheet">
+      <span class="map-pick-tag">选图</span>
+      <strong id="mapPickName">选择地图</strong>
+      <i class="map-pick-caret" aria-hidden="true"></i>
+    </button>
+
+    <div class="map-chip map-name">
+      <strong id="mapName">Unknown</strong>
+      <span id="roomBadge">未连接</span>
+    </div>
+
+    <div class="brand-logo">Wawa<span>VA瓦雷达</span></div>
+
+    <!-- kill feed 浮层: meta.events 的 death 按 t_ms 倒序 -->
+    <div id="killFeed" class="kill-feed" aria-label="kill feed"></div>
+
+    <div id="spikePanel" class="spike-panel hidden">
+      <img src="/world/spike.png" alt="">
+      <strong class="spike-time">0</strong>
+      <div class="spike-meta">
+        <span class="spike-status">不可拆</span>
+        <span class="spike-bar"><i></i></span>
+      </div>
+    </div>
+
+    <button class="panel-toggle" id="rosterBtn" type="button" title="队伍" aria-label="队伍">
+      <i></i><i></i><i></i>
+    </button>
+
+    <button class="panel-toggle settings-toggle" id="panelBtn" type="button" title="设置" aria-label="设置">
+      <i></i><i></i><i></i>
+    </button>
+
+    <!-- 队伍侧栏: 我方/敌方分组, DOM 差量更新 -->
+    <aside class="panel roster-panel" id="rosterPanel" aria-label="roster">
+      <div class="panel-header">队伍<span>ROSTER</span></div>
+      <div class="roster" id="roster"></div>
+    </aside>
+
+    <aside class="panel settings-panel" id="settingsPanel" aria-label="radar controls">
+      <div class="panel-header">系统设置<span>SETTINGS</span></div>
+
+      <section class="section">
+        <div class="section-title">状态</div>
+        <div class="metric-grid">
+          <div><span>Web FPS</span><strong id="webFps">60</strong></div>
+          <div><span>玩家</span><strong id="playerCount">0</strong></div>
+          <div><span>观众</span><strong id="viewerCount">0</strong></div>
+          <div><span>模式</span><strong id="modeText">标准</strong></div>
+        </div>
+        <div class="metric-hidden"><strong id="scaleText">50</strong><strong id="sizeText">100</strong></div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">连接</div>
+        <label class="server-row">
+          <span>服务器</span>
+          <input id="serverInputMirror" class="server-input mirror" spellcheck="false" aria-label="server mirror">
+        </label>
+        <button id="disconnectBtn" class="side-btn danger" type="button">断开连接</button>
+      </section>
+
+      <section class="section">
+        <div class="section-title">显示</div>
+        <div class="option-row">
+          <label for="showLabels">特工名称</label>
+          <label class="toggle"><input id="showLabels" type="checkbox" checked><span class="track"></span></label>
+        </div>
+        <div class="option-row">
+          <label for="showHealth">血量条</label>
+          <label class="toggle"><input id="showHealth" type="checkbox" checked><span class="track"></span></label>
+        </div>
+        <div class="option-row">
+          <label for="showArmor">护甲条</label>
+          <label class="toggle"><input id="showArmor" type="checkbox" checked><span class="track"></span></label>
+        </div>
+        <div class="option-row">
+          <label for="showWeapon">武器名称</label>
+          <label class="toggle"><input id="showWeapon" type="checkbox" checked><span class="track"></span></label>
+        </div>
+        <div class="option-row">
+          <label for="showFov">视野扇形</label>
+          <label class="toggle"><input id="showFov" type="checkbox" checked><span class="track"></span></label>
+        </div>
+        <div class="option-row">
+          <label for="showGrid">网格线</label>
+          <label class="toggle"><input id="showGrid" type="checkbox"><span class="track"></span></label>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">标记</div>
+        <div class="option-row">
+          <label for="showDeath">死亡标记</label>
+          <label class="toggle"><input id="showDeath" type="checkbox" checked><span class="track"></span></label>
+        </div>
+        <div class="option-row">
+          <label for="showKillFeed">击杀提示</label>
+          <label class="toggle"><input id="showKillFeed" type="checkbox" checked><span class="track"></span></label>
+        </div>
+        <div class="option-row">
+          <label for="showDecode">调试面板（解码状态条）</label>
+          <label class="toggle"><input id="showDecode" type="checkbox" checked><span class="track"></span></label>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">爆能器</div>
+        <div class="option-row">
+          <label for="showSpikePos">爆能器位置</label>
+          <label class="toggle"><input id="showSpikePos" type="checkbox" checked><span class="track"></span></label>
+        </div>
+        <div class="option-row">
+          <label for="showSpikeTimer">爆能器倒计时</label>
+          <label class="toggle"><input id="showSpikeTimer" type="checkbox" checked><span class="track"></span></label>
+        </div>
+        <div class="option-row">
+          <label for="showSpikeCarrier">携带者标记</label>
+          <label class="toggle"><input id="showSpikeCarrier" type="checkbox" checked><span class="track"></span></label>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">地图</div>
+        <div class="option-row">
+          <label for="manualMapSelect">手动选图（顶部有大按钮）</label>
+          <select id="manualMapSelect" class="map-select">
+            <option value="">自动(包内识别)</option>
+            <option value="Ascent">亚海悬城</option>
+            <option value="Duality">源工重镇</option>
+            <option value="Port">冬寒深巷</option>
+            <option value="Triad">隐世修所</option>
+            <option value="Bonsai">霓虹町</option>
+            <option value="Foxtrot">微风岛屿</option>
+            <option value="Canyon">裂变峡谷</option>
+            <option value="Rook">古寨</option>
+            <option value="Pitt">深海明珠</option>
+            <option value="Jam">莲花古城</option>
+            <option value="Juliett">日落之城</option>
+            <option value="Abyss">幽邃地窟</option>
+            <option value="Summit">天枢云阙</option>
+          </select>
+        </div>
+        <label class="slider-row">
+          <span class="slider-label"><span>地图尺寸</span><span id="mapScaleValue" class="slider-value">100%</span></span>
+          <input id="mapScale" type="range" min="50" max="150" value="100" step="5">
+        </label>
+        <label class="slider-row">
+          <span class="slider-label"><span>图标大小</span><span id="iconSizeValue" class="slider-value">24</span></span>
+          <input id="iconSize" type="range" min="14" max="40" value="24" step="1">
+        </label>
+      </section>
+
+      <section class="section">
+        <div class="section-title">外观</div>
+        <div class="side-selector">
+          <button class="side-btn active-def" id="themeDarkBtn" type="button">暗色</button>
+          <button class="side-btn" id="themeLightBtn" type="button">亮色</button>
+        </div>
+      </section>
+    </aside>
+
+    <div id="mapSheet" class="map-sheet hidden" role="dialog" aria-modal="true" aria-label="选择地图">
+      <div class="map-sheet-backdrop" id="mapSheetBackdrop"></div>
+      <div class="map-sheet-card">
+        <div class="map-sheet-head">选择地图<span>MAP</span></div>
+        <p class="map-sheet-hint">这局是哪张图就点哪张。选错了随时点顶部的大按钮重选。</p>
+        <button id="mapAutoBtn" class="map-auto-btn" type="button">自动识别（用包里的地图信息）</button>
+        <div id="mapGrid" class="map-grid"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/radar-transform.js?v=20261024-summit" defer></script>
+  <script src="/app.js?v=20261024-summit" defer></script>
+</body>
+</html>
